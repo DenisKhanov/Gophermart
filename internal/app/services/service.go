@@ -506,6 +506,7 @@ func (s GmartServices) CheckUpdateUserOrders(ctx context.Context, userID uuid.UU
 // и возвращает models.AccrualResponseData.
 func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder) (models.AccrualResponseData, error) {
 	accrualSystemURL := s.accrualAddress + "/" + order.Number
+	logrus.Info(accrualSystemURL)
 
 	// create HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accrualSystemURL, nil)
@@ -551,7 +552,7 @@ func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder
 
 	// parse body
 	var accrualResponse models.AccrualResponseData
-	logrus.Info(body)
+	logrus.Info(string(body))
 	if err = json.Unmarshal(body, &accrualResponse); err != nil {
 		logrus.Error("failed to unmarshal response body: ", err)
 		return models.AccrualResponseData{}, err
