@@ -77,7 +77,7 @@ func (h Handlers) CreateUser(c *gin.Context) {
 		c.Status(http.StatusBadRequest)
 		return
 	}
-	c.Status(http.StatusCreated)
+	c.Status(http.StatusOK)
 	c.SetCookie("user_token", tokenString, 0, "/", "", false, true)
 }
 

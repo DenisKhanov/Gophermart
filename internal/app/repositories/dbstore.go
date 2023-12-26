@@ -185,7 +185,6 @@ func (d *URLInDBRepo) GetProcessingOrders(ctx context.Context) ([]models.UserOrd
 		logrus.Error(err)
 		return nil, err
 	}
-	logrus.Infof("return processing orders %v", orders)
 	return orders, nil
 }
 
@@ -285,7 +284,6 @@ func (d *URLInDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBa
 			return err
 		}
 	}
-	logrus.Infof("orders %v updated", usersBalanceToUpdate)
 	return nil
 }
 

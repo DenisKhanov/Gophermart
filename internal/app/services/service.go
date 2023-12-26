@@ -505,7 +505,7 @@ func (s GmartServices) CheckUpdateUserOrders(ctx context.Context, userID uuid.UU
 // GetAccrualAPI отправляет запрос в систему расчёта баллов лояльности
 // и возвращает models.AccrualResponseData.
 func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder) (models.AccrualResponseData, error) {
-	accrualSystemURL := s.accrualAddress + order.Number
+	accrualSystemURL := s.accrualAddress + "/" + order.Number
 
 	// create HTTP request
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, accrualSystemURL, nil)

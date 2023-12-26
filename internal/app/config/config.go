@@ -21,7 +21,7 @@ func NewConfig() *ENVConfig {
 
 	flag.StringVar(&cfg.EnvServAdr, "a", "localhost:8090", "HTTP server address")
 
-	flag.StringVar(&cfg.EnvAccrualSystemAddress, "b", "http://localhost:8080/api/orders/", "Set URL accrual_system address")
+	flag.StringVar(&cfg.EnvAccrualSystemAddress, "b", "http://localhost:8080/api/orders", "Set URL accrual_system address")
 
 	flag.StringVar(&cfg.EnvStoragePath, "f", "/tmp/short-url-db.json", "Path for saving data file")
 
