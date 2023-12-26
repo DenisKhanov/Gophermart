@@ -215,15 +215,16 @@ func (d *URLInDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.U
 }
 
 // TODO может условие с accrual nil в базе прописать, обратить внимание на совет Дениса
+
 // GetUserOrders возвращает слайс всех заказов пользователя в формате models.UserOrder
 func (d *URLInDBRepo) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
 	const selectQuery = `SELECT order_number,status,accrual,date FROM orders WHERE uuid = $1 ORDER BY date`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID)
-	defer rows.Close()
 	if err != nil {
 		logrus.Error(err)
 		return nil, err
 	}
+	defer rows.Close()
 
 	var userOrders []models.UserOrder
 
@@ -322,11 +323,11 @@ func (d *URLInDBRepo) GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (d
 func (d *URLInDBRepo) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error) {
 	const selectQuery = `SELECT order_number,sum,date FROM withdrawals WHERE uuid = $1 ORDER BY date`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID)
-	defer rows.Close()
 	if err != nil {
 		logrus.Error(err)
 		return nil, err
 	}
+	defer rows.Close()
 
 	var userWithdrawals []models.UserWithdrawal
 

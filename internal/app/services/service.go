@@ -176,9 +176,12 @@ func (s GmartServices) checkPassword(password string) error {
 // CreateUser метод регистрации пользователя, выполняет проверки на качество логина и пароля
 // и в случае соответствия сохраняет пользователя в базу данных
 func (s GmartServices) CreateUser(ctx context.Context, login, password string) (token string, err error) {
-	if err = s.checkRegistrationData(login, password); err != nil {
-		logrus.Error(err)
-		return "", err
+	//if err = s.checkRegistrationData(login, password); err != nil {
+	//	logrus.Error(err)
+	//	return "", err
+	//}
+	if len(login) < 1 || len(password) < 1 {
+		return "", models.ErrSaveNewUser
 	}
 	_, err = s.repository.GetUserHashPassword(ctx, login)
 	if err == nil {
@@ -213,10 +216,10 @@ func (s GmartServices) CreateUser(ctx context.Context, login, password string) (
 
 // LogIn метод аутентификации пользователя, в случае успеха возвращает token
 func (s GmartServices) LogIn(ctx context.Context, login, password string) (token string, err error) {
-	if err = s.checkLogin(login); err != nil {
-		logrus.Error(err)
-		return "", err
-	}
+	//if err = s.checkLogin(login); err != nil {
+	//	logrus.Error(err)
+	//	return "", err
+	//}
 	savedHashedPassword, err := s.repository.GetUserHashPassword(ctx, login)
 	if err != nil {
 		logrus.Error(err)
