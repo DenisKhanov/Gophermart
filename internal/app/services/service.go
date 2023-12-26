@@ -523,6 +523,7 @@ func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder
 	defer resp.Body.Close()
 
 	// check request status
+	// TODO возможно тут нужно сохранять заказ со статусом NEW?
 	for resp.StatusCode == http.StatusTooManyRequests {
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
@@ -550,6 +551,7 @@ func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder
 
 	// parse body
 	var accrualResponse models.AccrualResponseData
+	logrus.Info(body)
 	if err = json.Unmarshal(body, &accrualResponse); err != nil {
 		logrus.Error("failed to unmarshal response body: ", err)
 		return models.AccrualResponseData{}, err

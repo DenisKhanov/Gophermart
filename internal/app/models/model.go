@@ -29,7 +29,7 @@ type UserOrder struct {
 	UploadedAt time.Time        `json:"uploaded_at"`
 }
 type AccrualResponseData struct {
-	UserID  uuid.UUID
+	UserID  uuid.UUID        `json:"-"`
 	Order   string           `json:"order"`
 	Status  string           `json:"status"`
 	Accrual *decimal.Decimal `json:"accrual,omitempty"`
