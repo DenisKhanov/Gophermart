@@ -1,11 +1,14 @@
 package services
 
+// TODO разделить сервис на отдельные сервисы
+
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/DenisKhanov/Gophermart/internal/app/auth"
+	"github.com/DenisKhanov/Gophermart/internal/app/customerrors"
 	"github.com/DenisKhanov/Gophermart/internal/app/models"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -27,20 +30,20 @@ import (
 type Repository interface {
 	StoreNewUser(ctx context.Context, tx pgx.Tx, userID uuid.UUID, login string, hashedPassword []byte) error
 	StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error
+	StoreUserOrder(ctx context.Context, tx pgx.Tx, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error
+	StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error
 	GetUserHashPassword(ctx context.Context, login string) ([]byte, error)
 	GetUUIDFromOrders(ctx context.Context, orderNumber string) (uuid.UUID, error)
 	GetUUIDFromUsers(ctx context.Context, login string) (uuid.UUID, error)
-	StoreUserOrder(ctx context.Context, tx pgx.Tx, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error
 	GetProcessingOrders(ctx context.Context) ([]models.UserOrder, error)
 	GetUserProcessingOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error)
-	UpdateOrders(ctx context.Context, tx pgx.Tx, orders []models.AccrualResponseData) error
 	GetUserOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error)
-	StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error
 	GetUserBalance(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error)
 	GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error)
+	GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error)
+	UpdateOrders(ctx context.Context, tx pgx.Tx, orders []models.AccrualResponseData) error
 	UpdateUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, newBalance decimal.Decimal) error
 	UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBalanceToUpdate map[uuid.UUID]decimal.Decimal) error
-	GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error)
 }
 
 type GmartServices struct {
@@ -86,12 +89,12 @@ func (s GmartServices) CreateUser(ctx context.Context, login, password string) (
 	//	return "", err
 	//}
 	if len(login) < 1 || len(password) < 1 {
-		return "", models.ErrSaveNewUser
+		return "", customerrors.ErrSaveNewUser
 	}
 	_, err = s.repository.GetUserHashPassword(ctx, login)
 	if err == nil {
-		logrus.Error(models.ErrUserAlreadyTaken)
-		return "", models.ErrUserAlreadyTaken
+		logrus.Error(customerrors.ErrUserAlreadyTaken)
+		return "", customerrors.ErrUserAlreadyTaken
 	}
 	hashedPassword, err := auth.CreateHashPassword(password)
 	if err != nil {
@@ -101,16 +104,16 @@ func (s GmartServices) CreateUser(ctx context.Context, login, password string) (
 	userID := auth.GenerateUniqueID()
 	token, err = auth.BuildJWTString(userID)
 	if err != nil {
-		return "", models.ErrSaveNewUser
+		return "", customerrors.ErrSaveNewUser
 	}
 	if err = s.withTransaction(ctx, func(tx pgx.Tx) error {
 		if err = s.repository.StoreNewUser(ctx, tx, userID, login, hashedPassword); err != nil {
-			logrus.Error(models.ErrSaveNewUser)
-			return models.ErrSaveNewUser
+			logrus.Error(customerrors.ErrSaveNewUser)
+			return customerrors.ErrSaveNewUser
 		}
 		if err = s.repository.StoreNewUserBalance(ctx, tx, userID); err != nil {
-			logrus.Error(models.ErrSaveNewUser)
-			return models.ErrSaveNewUser
+			logrus.Error(customerrors.ErrSaveNewUser)
+			return customerrors.ErrSaveNewUser
 		}
 		return nil
 	}); err != nil {
@@ -134,15 +137,15 @@ func (s GmartServices) LogIn(ctx context.Context, login, password string) (token
 	if auth.CheckHashPasswordForValid(savedHashedPassword, password) {
 		savedUserID, err := s.repository.GetUUIDFromUsers(ctx, login)
 		if err != nil {
-			return "", models.ErrAccessingDB
+			return "", customerrors.ErrAccessingDB
 		}
 		token, err = auth.BuildJWTString(savedUserID)
 		if err != nil {
-			return "", models.ErrSaveNewUser
+			return "", customerrors.ErrSaveNewUser
 		}
 		return token, nil
 	}
-	return "", models.ErrUnauthorizedUser
+	return "", customerrors.ErrUnauthorizedUser
 }
 
 // checkRegistrationData объединяет checkLogin и checkPassword, если логин или пароль не соответствует, то возвращает ошибку
@@ -245,18 +248,19 @@ func (s GmartServices) checkPassword(password string) error {
 // то асинхронно отправляет запрос в accrualAPI сервис и записывает результат в базу
 func (s GmartServices) InputUserOrder(ctx context.Context, userID uuid.UUID, orderNumber string) error {
 	if !isValidLuhn(orderNumber) {
-		return models.ErrOrderNumber
+		return customerrors.ErrOrderNumber
 	}
+	// Check if order already exists and who it belongs to.
 	savedUserID, err := s.repository.GetUUIDFromOrders(ctx, orderNumber)
 	if err == nil {
 		if savedUserID == userID {
-			return models.ErrUserOrderExists
+			return customerrors.ErrUserOrderExists
 		}
-		return models.ErrAnotherUserOrderExists
+		return customerrors.ErrAnotherUserOrderExists
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
 		logrus.Error(err)
-		return models.ErrAccessingDB
+		return customerrors.ErrAccessingDB
 	}
 	resultCh := make(chan models.AccrualResponseData)
 	errCh := make(chan error)
@@ -284,19 +288,19 @@ func (s GmartServices) InputUserOrder(ctx context.Context, userID uuid.UUID, ord
 		if err != nil {
 			if !errors.Is(err, pgx.ErrNoRows) {
 				logrus.Error(err)
-				return models.ErrAccessingDB
+				return customerrors.ErrAccessingDB
 			}
 		}
 		newUserBalance := userBalance.Add(*accrualData.Accrual)
 		return s.withTransaction(ctx, func(tx pgx.Tx) error {
 			if err = s.repository.StoreUserOrder(ctx, tx, orderNumber, accrualData.Status, userID, *accrualData.Accrual); err != nil {
 				logrus.Error(err)
-				return models.ErrAccessingDB
+				return customerrors.ErrAccessingDB
 			}
 			if accrualData.Accrual != nil {
 				if err = s.repository.UpdateUserBalance(ctx, tx, userID, newUserBalance); err != nil {
 					logrus.Error(err)
-					return models.ErrAccessingDB
+					return customerrors.ErrAccessingDB
 				}
 				return nil
 			}
@@ -334,14 +338,14 @@ func (s GmartServices) withTransaction(ctx context.Context, txFunc func(pgx.Tx) 
 	return err
 }
 
-// startWorkers создание воркер пула
+// startWorkers создание worker пула
 func (s GmartServices) startWorkers(ctx context.Context, numOfWorkers int, tasks <-chan models.UserOrder, resultCh chan<- models.AccrualResponseData, errCh chan<- error, wg *sync.WaitGroup) {
 	for i := 0; i < numOfWorkers; i++ {
 		go s.worker(ctx, tasks, resultCh, errCh, wg)
 	}
 }
 
-// startWorkers создание воркера
+// startWorkers создание worker
 func (s GmartServices) worker(ctx context.Context, tasks <-chan models.UserOrder, resultCh chan<- models.AccrualResponseData, errCh chan<- error, wg *sync.WaitGroup) {
 	for task := range tasks {
 		responseData, err := s.GetAccrualAPI(ctx, task)
@@ -356,7 +360,7 @@ func (s GmartServices) worker(ctx context.Context, tasks <-chan models.UserOrder
 	}
 }
 
-// RunUpdateOrdersStatusJob метод запускающий сбор заказов с незавершенными статусами и обращение с ними к accrual сервису
+// RunUpdateOrdersStatusJob метод запускающий асинхронный сбор заказов с незавершенными статусами и обращение с ними к accrual сервису
 func (s GmartServices) RunUpdateOrdersStatusJob(ctx context.Context) error {
 	processingOrders, err := s.repository.GetProcessingOrders(ctx)
 	if err != nil {
@@ -395,7 +399,7 @@ func (s GmartServices) RunUpdateOrdersStatusJob(ctx context.Context) error {
 					userBalance, err := s.repository.GetUserBalance(ctx, accrualData.UserID)
 					if err != nil {
 						logrus.Error(err)
-						return models.ErrAccessingDB
+						return customerrors.ErrAccessingDB
 					}
 					usersBalanceToUpdate[accrualData.UserID] = userBalance.Add(*accrualData.Accrual)
 				}
@@ -417,12 +421,12 @@ func (s GmartServices) RunUpdateOrdersStatusJob(ctx context.Context) error {
 	return s.withTransaction(ctx, func(tx pgx.Tx) error {
 		if err = s.repository.UsersBalanceUpdate(ctx, tx, usersBalanceToUpdate); err != nil {
 			logrus.Error(err)
-			return models.ErrAccessingDB
+			return customerrors.ErrAccessingDB
 		}
 		// Обновление заказов в таблице processingOrders базы данных
 		if len(ordersToUpdate) > 0 {
 			if err = s.repository.UpdateOrders(ctx, tx, ordersToUpdate); err != nil {
-				return models.ErrAccessingDB
+				return customerrors.ErrAccessingDB
 			}
 		}
 		return nil
@@ -484,19 +488,19 @@ func (s GmartServices) CheckUpdateUserOrders(ctx context.Context, userID uuid.UU
 	userBalance, err := s.repository.GetUserBalance(ctx, userID)
 	if err != nil {
 		logrus.Error(err)
-		return models.ErrAccessingDB
+		return customerrors.ErrAccessingDB
 	}
 	// запускаем транзакцию в которой обновляем баланс пользователя и состояние заказов
 	newUserBalance := userBalance.Add(accrualToUpdate)
 	return s.withTransaction(ctx, func(tx pgx.Tx) error {
 		if err = s.repository.UpdateUserBalance(ctx, tx, userID, newUserBalance); err != nil {
 			logrus.Error(err)
-			return models.ErrAccessingDB
+			return customerrors.ErrAccessingDB
 		}
 		// Обновление заказов в таблице orders базы данных
 		if len(ordersToUpdate) > 0 {
 			if err = s.repository.UpdateOrders(ctx, tx, ordersToUpdate); err != nil {
-				return models.ErrAccessingDB
+				return customerrors.ErrAccessingDB
 			}
 		}
 		return nil
@@ -560,7 +564,7 @@ func (s GmartServices) GetUserOrdersInfo(ctx context.Context, userID uuid.UUID) 
 		return nil, err
 	}
 	if len(userOrders) == 0 {
-		return nil, models.ErrUserHasNoOrders
+		return nil, customerrors.ErrUserHasNoOrders
 	}
 	return userOrders, nil
 }
@@ -570,7 +574,7 @@ func (s GmartServices) GetUserBalance(ctx context.Context, userID uuid.UUID) (us
 	balance, err := s.repository.GetUserBalance(ctx, userID)
 	if err != nil {
 		logrus.Error(err)
-		return userBalance, models.ErrAccessingDB
+		return userBalance, customerrors.ErrAccessingDB
 	}
 	userWithdrawn, err := s.repository.GetUserWithdrawn(ctx, userID)
 	if err != nil {
@@ -587,15 +591,15 @@ func (s GmartServices) GetUserBalance(ctx context.Context, userID uuid.UUID) (us
 // WithdrawalBonusForNewOrder сохранение запроса на списание бонусных средств на оплату заказа
 func (s GmartServices) WithdrawalBonusForNewOrder(ctx context.Context, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error {
 	if !isValidLuhn(orderNumber) {
-		return models.ErrOrderNumber
+		return customerrors.ErrOrderNumber
 	}
 	userBalance, err := s.repository.GetUserBalance(ctx, userID)
 	if err != nil {
 		logrus.Error(err)
-		return models.ErrAccessingDB
+		return customerrors.ErrAccessingDB
 	}
 	if userBalance.LessThan(sum) {
-		return models.ErrNotEnoughFunds
+		return customerrors.ErrNotEnoughFunds
 	}
 
 	newUserBalance := userBalance.Sub(sum)
@@ -620,7 +624,7 @@ func (s GmartServices) GetUserWithdrawalsInfo(ctx context.Context, userID uuid.U
 		return nil, err
 	}
 	if len(userWithdrawals) == 0 {
-		return nil, models.ErrUserHasNoWithdrawals
+		return nil, customerrors.ErrUserHasNoWithdrawals
 	}
 	return userWithdrawals, nil
 }

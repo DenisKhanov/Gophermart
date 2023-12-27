@@ -21,7 +21,7 @@ import (
 )
 
 func init() {
-	// Установка флага для сериализации в JSON без кавычек
+	// Установка флага для сериализации decimal в JSON без кавычек
 	decimal.MarshalJSONWithoutQuotes = true
 }
 func main() {
@@ -49,7 +49,7 @@ func main() {
 	GophermartRepository = repositories.NewURLInDBRepo(dbPool)
 
 	logcfg.RunLoggerConfig(cfg.EnvLogLevel)
-	logrus.Infof("Server started:\nServer addres %s\nBase URL %s\nFile path %s\nDBConfig %s\n", cfg.EnvServAdr, cfg.EnvAccrualSystemAddress, cfg.EnvStoragePath, cfg.EnvDataBase)
+	logrus.Infof("Server started:\nServer addres %s\nBase URL %s\nLog level %s\n", cfg.EnvServAdr, cfg.EnvAccrualSystemAddress, cfg.EnvLogLevel)
 
 	GophermartService := services.NewGmartServices(GophermartRepository, cfg.EnvAccrualSystemAddress, dbPool)
 	GophermartHandler := handlers.NewHandlers(GophermartService, dbPool)
@@ -107,6 +107,8 @@ func main() {
 	if err = server.Shutdown(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "HTTP server Shutdown: %v\n", err)
 	}
+
+	// TODO подумать над добавлением функционала при получении сигнала
 
 	logrus.Info("Server exited")
 }

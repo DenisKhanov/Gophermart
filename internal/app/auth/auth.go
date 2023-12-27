@@ -38,7 +38,7 @@ func BuildJWTString(userID uuid.UUID) (string, error) {
 	return tokenString, nil
 }
 
-// generate Unique ID generate a unique UserID from 0 to 999999
+// GenerateUniqueID генерирует UUID при помощи библиотеки golang.org/x/crypto/bcrypt
 func GenerateUniqueID() uuid.UUID {
 	return uuid.New()
 }
@@ -65,27 +65,7 @@ func GetUserID(tokenString string) (uuid.UUID, error) {
 	return claims.UserID, nil
 }
 
-// IsValidToken method to check the token for validity, we return bool
-func IsValidToken(tokenString string) bool {
-	claims := &Claims{}
-	token, err := jwt.ParseWithClaims(tokenString, claims, func(t *jwt.Token) (interface{}, error) {
-		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, fmt.Errorf("unexpected signed method: %v", t.Header["alg"])
-		}
-		return []byte(SecretKey), nil
-	})
-	if err != nil {
-		logrus.Error(err)
-		return false
-	}
-	if !token.Valid {
-		err = fmt.Errorf("token is not valid")
-		logrus.Error(err)
-		return false
-	}
-	return true
-}
-
+// CreateHashPassword хеширует пароль пользователя для сохранения в репозитории
 func CreateHashPassword(password string) ([]byte, error) {
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
@@ -94,6 +74,8 @@ func CreateHashPassword(password string) ([]byte, error) {
 	}
 	return hashedPassword, nil
 }
+
+// CheckHashPasswordForValid проверяет введенный пользователем пароль на соответствие сохраненному
 func CheckHashPasswordForValid(savedHashedPassword []byte, inputPassword string) bool {
 	err := bcrypt.CompareHashAndPassword(savedHashedPassword, []byte(inputPassword))
 	if err != nil {

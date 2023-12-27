@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"github.com/DenisKhanov/Gophermart/internal/app/auth"
+	"github.com/DenisKhanov/Gophermart/internal/app/customerrors"
 	"github.com/DenisKhanov/Gophermart/internal/app/models"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -43,8 +44,6 @@ type loggingResponseWriter struct {
 	responseData *responseData
 }
 
-var typeArray = [2]string{"application/json", "text/html"}
-
 func NewHandlers(service Service, DB *pgxpool.Pool) *Handlers {
 	return &Handlers{
 		service: service,
@@ -63,12 +62,12 @@ func (h Handlers) CreateUser(c *gin.Context) {
 	}
 	tokenString, err := h.service.CreateUser(ctx, dataUser.Login, dataUser.Password)
 	if err != nil {
-		if errors.Is(err, models.ErrUserAlreadyTaken) {
+		if errors.Is(err, customerrors.ErrUserAlreadyTaken) {
 			logrus.Error(err)
 			c.Status(http.StatusConflict)
 			return
 		}
-		if errors.Is(err, models.ErrSaveNewUser) {
+		if errors.Is(err, customerrors.ErrSaveNewUser) {
 			logrus.Error(err)
 			c.Status(http.StatusInternalServerError)
 			return
@@ -92,7 +91,7 @@ func (h Handlers) LogIn(c *gin.Context) {
 	}
 	tokenString, err := h.service.LogIn(ctx, dataUser.Login, dataUser.Password)
 	if err != nil {
-		if errors.Is(err, models.ErrAccessingDB) {
+		if errors.Is(err, customerrors.ErrAccessingDB) {
 			logrus.Error(err)
 			c.Status(http.StatusInternalServerError)
 		}
@@ -131,15 +130,15 @@ func (h Handlers) InputUserOrder(c *gin.Context) {
 // errorCodeToStatus вспомогательный метод проверки ошибок и установки статусов
 func errorCodeToStatus(err error) (int, string) {
 	switch {
-	case errors.Is(err, models.ErrOrderNumber):
+	case errors.Is(err, customerrors.ErrOrderNumber):
 		return http.StatusUnprocessableEntity, "Invalid order number"
-	case errors.Is(err, models.ErrTokenIsNotValid):
+	case errors.Is(err, customerrors.ErrTokenIsNotValid):
 		return http.StatusUnauthorized, "Token is not valid"
-	case errors.Is(err, models.ErrUserOrderExists):
+	case errors.Is(err, customerrors.ErrUserOrderExists):
 		return http.StatusOK, "User order already exists"
-	case errors.Is(err, models.ErrAnotherUserOrderExists):
+	case errors.Is(err, customerrors.ErrAnotherUserOrderExists):
 		return http.StatusConflict, "Another user's order exists"
-	case errors.Is(err, models.ErrAccessingDB):
+	case errors.Is(err, customerrors.ErrAccessingDB):
 		return http.StatusInternalServerError, "Error accessing database"
 	default:
 		return http.StatusInternalServerError, "Internal server error"
@@ -157,7 +156,7 @@ func (h Handlers) GetUserOrdersInfo(c *gin.Context) {
 	}
 	userOrders, err := h.service.GetUserOrdersInfo(ctx, userID)
 	if err != nil {
-		if errors.Is(err, models.ErrUserHasNoOrders) {
+		if errors.Is(err, customerrors.ErrUserHasNoOrders) {
 			logrus.Error(err)
 			c.JSON(http.StatusNoContent, gin.H{"error": err.Error()})
 			return
@@ -169,6 +168,7 @@ func (h Handlers) GetUserOrdersInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, userOrders)
 }
 
+// GetUserBalance получение бонусного баланса пользователя
 func (h Handlers) GetUserBalance(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID, ok := ctx.Value(models.UserIDKey).(uuid.UUID)
@@ -187,6 +187,7 @@ func (h Handlers) GetUserBalance(c *gin.Context) {
 	c.JSON(http.StatusOK, userBalance)
 }
 
+// WithdrawalBonusForNewOrder списание бонусов в счет нового заказа
 func (h Handlers) WithdrawalBonusForNewOrder(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID, ok := ctx.Value(models.UserIDKey).(uuid.UUID)
@@ -202,11 +203,11 @@ func (h Handlers) WithdrawalBonusForNewOrder(c *gin.Context) {
 		return
 	}
 	if err := h.service.WithdrawalBonusForNewOrder(ctx, userID, withdrawalRequest.Order, *withdrawalRequest.Sum); err != nil {
-		if errors.Is(err, models.ErrOrderNumber) {
+		if errors.Is(err, customerrors.ErrOrderNumber) {
 			c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
 			return
 		}
-		if errors.Is(err, models.ErrNotEnoughFunds) {
+		if errors.Is(err, customerrors.ErrNotEnoughFunds) {
 			c.JSON(http.StatusPaymentRequired, gin.H{"error": err.Error()})
 			return
 		}
@@ -216,6 +217,7 @@ func (h Handlers) WithdrawalBonusForNewOrder(c *gin.Context) {
 	c.Status(http.StatusOK)
 }
 
+// GetUserWithdrawalsInfo возврат информации о всех списаниях пользователя
 func (h Handlers) GetUserWithdrawalsInfo(c *gin.Context) {
 	ctx := c.Request.Context()
 	userID, ok := ctx.Value(models.UserIDKey).(uuid.UUID)
@@ -226,7 +228,7 @@ func (h Handlers) GetUserWithdrawalsInfo(c *gin.Context) {
 	}
 	userWithdrawals, err := h.service.GetUserWithdrawalsInfo(ctx, userID)
 	if err != nil {
-		if errors.Is(err, models.ErrUserHasNoWithdrawals) {
+		if errors.Is(err, customerrors.ErrUserHasNoWithdrawals) {
 			logrus.Error(err)
 			c.JSON(http.StatusNoContent, gin.H{"error": err.Error()})
 			return
@@ -316,38 +318,6 @@ func (h Handlers) MiddlewareCompress() gin.HandlerFunc {
 		c.Next()
 	}
 }
-
-// MiddlewareAuthPublic provides authentication middleware for public routes.
-// It manages user tokens, generating new tokens if necessary, and adds user ID to the context.
-// This middleware is useful for routes that require user identification but not strict authentication.
-//func (h Handlers) MiddlewareAuthPublic() gin.HandlerFunc {
-//	return func(c *gin.Context) {
-//		var tokenString string
-//		var err error
-//		var userID uint32
-//
-//		tokenString, err = c.Cookie("user_token")
-//		// если токен не найден в куке, то генерируем новый и добавляем его в куки
-//		if err != nil || !auth.IsValidToken(tokenString) {
-//			logrus.Info("Cookie not found or token in cookie not found")
-//			tokenString, err = auth.BuildJWTString()
-//			if err != nil {
-//				logrus.Errorf("error generating token: %v", err)
-//				c.AbortWithStatus(http.StatusInternalServerError)
-//			}
-//			c.SetCookie("user_token", tokenString, 0, "/", "", false, true)
-//		}
-//		userID, err = auth.GetUserID(tokenString)
-//		if err != nil {
-//			logrus.Error(err)
-//			return
-//		}
-//
-//		ctx := context.WithValue(c.Request.Context(), models.UserIDKey, userID)
-//		c.Request = c.Request.WithContext(ctx)
-//		c.Next()
-//	}
-//}
 
 // MiddlewareAuthPrivate provides authentication middleware for private routes.
 // It checks the user token and only allows access if the token is valid.

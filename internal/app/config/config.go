@@ -12,7 +12,6 @@ type ENVConfig struct {
 	EnvServAdr              string `env:"RUN_ADDRESS"`
 	EnvAccrualSystemAddress string `env:"ACCRUAL_SYSTEM_ADDRESS"`
 	EnvDataBase             string `env:"DATABASE_URI"`
-	EnvStoragePath          string `env:"FILE_STORAGE_PATH"`
 	EnvLogLevel             string `env:"LOG_LEVEL"`
 }
 
@@ -23,11 +22,9 @@ func NewConfig() *ENVConfig {
 
 	flag.StringVar(&cfg.EnvAccrualSystemAddress, "r", "http://localhost:8080", "Set URL accrual_system address")
 
-	flag.StringVar(&cfg.EnvStoragePath, "f", "/tmp/short-url-db.json", "Path for saving data file")
-
 	flag.StringVar(&cfg.EnvLogLevel, "l", "info", "Set logg level")
 
-	flag.StringVar(&cfg.EnvDataBase, "d", "", "Set connect dbPool config")
+	flag.StringVar(&cfg.EnvDataBase, "d", "user=postgres password=12121212 dbname=gophermart port=5433 sslmode=disable", "Set connect dbPool config")
 
 	flag.Parse()
 

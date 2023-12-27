@@ -1,5 +1,7 @@
 package repositories
 
+// TODO разделить репозиторий на отдельные репозитории
+
 import (
 	"context"
 	"database/sql"
@@ -21,7 +23,9 @@ func NewURLInDBRepo(dbPool *pgxpool.Pool) *InDBRepo {
 	storage := &InDBRepo{
 		dbPool: dbPool,
 	}
-	storage.CreateBDTables()
+	if err := storage.CreateBDTables(); err != nil {
+		logrus.Error(err)
+	}
 	return storage
 }
 
@@ -79,8 +83,9 @@ func (d *InDBRepo) StoreNewUser(ctx context.Context, tx pgx.Tx, userID uuid.UUID
 	}
 	return nil
 }
-func (d *InDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 
+// StoreNewUserBalance создает поле с нулевым балансом для пользователя в таблице balance
+func (d *InDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 	const sqlQuery = `INSERT INTO balance (uuid) VALUES ($1)`
 	_, err := tx.Exec(ctx, sqlQuery, userID)
 	if err != nil {
@@ -141,16 +146,16 @@ func (d *InDBRepo) GetUUIDFromOrders(ctx context.Context, orderNumber string) (u
 	err := d.dbPool.QueryRow(ctx, selectQuery, orderNumber).Scan(&savedUserID)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			logrus.Error(err)
+			logrus.Errorf("the order number not found: %s", err)
 			return uuid.Nil, fmt.Errorf("the order number not found: %w", err)
 		}
-		logrus.Error("error querying for uuid: ", err)
+		logrus.Errorf("error querying for uuid: %s", err)
 		return uuid.Nil, fmt.Errorf("error querying for order number: %w", err)
 	}
 	return savedUserID, nil
 }
 
-// UpdateOrders обновление состояния заказов, которые были с незавершенными статусами
+// UpdateOrders обновление состояния списка заказов, которые были с незавершенными статусами
 func (d *InDBRepo) UpdateOrders(ctx context.Context, tx pgx.Tx, updatedOrders []models.AccrualResponseData) error {
 	const sqlQuery = `UPDATE orders SET status = $1, accrual=$2 WHERE order_number = $3`
 	for _, order := range updatedOrders {
@@ -188,6 +193,7 @@ func (d *InDBRepo) GetProcessingOrders(ctx context.Context) ([]models.UserOrder,
 	return orders, nil
 }
 
+// GetUserProcessingOrders возвращение списка номеров заказов пользователя которые не имеют финального статуса
 func (d *InDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
 	const selectQuery = `SELECT order_number,status FROM orders WHERE uuid=$1 AND (status = $2 OR status = $3)`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID, "NEW", "PROCESSING")
@@ -209,7 +215,7 @@ func (d *InDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.UUID
 		logrus.Error(err)
 		return nil, err
 	}
-	logrus.Infof("return processing orders %v", orders)
+	logrus.Infof("return users processing orders %v", orders)
 	return orders, nil
 }
 
@@ -254,14 +260,12 @@ func (d *InDBRepo) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]model
 	return userOrders, nil
 }
 
-// TODO подумать где лучше открывать транзакцию
-
 // StoreUserWithdrawal сохраняет в таблицу withdrawals новое списание баллов пользователя
 func (d *InDBRepo) StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error {
 	const sqlQuery = `INSERT INTO withdrawals (uuid,order_number,sum) VALUES ($1, $2,$3)`
 	_, err := tx.Exec(ctx, sqlQuery, userID, orderNumber, sum)
 	if err != nil {
-		logrus.Error("new Withdrawal don't save in database ", err)
+		logrus.Error("new withdrawal don't save in database ", err)
 		return err
 	}
 	return nil
@@ -276,6 +280,8 @@ func (d *InDBRepo) UpdateUserBalance(ctx context.Context, tx pgx.Tx, userID uuid
 	}
 	return nil
 }
+
+// UsersBalanceUpdate обновляет состояние баланса пользователя
 func (d *InDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBalanceToUpdate map[uuid.UUID]decimal.Decimal) error {
 	const sqlQuery = `UPDATE balance SET user_balance = $1 WHERE uuid = $2`
 	for userID, newBalance := range usersBalanceToUpdate {
@@ -287,37 +293,39 @@ func (d *InDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBalan
 	return nil
 }
 
-// GetUserBalance возвращает нынешний баланс пользователя
+// GetUserBalance возвращает имеющийся на данный момент баланс пользователя
 func (d *InDBRepo) GetUserBalance(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
 	const selectQuery = `SELECT user_balance FROM balance WHERE uuid = $1`
 	var userBalance decimal.Decimal
 	err := d.dbPool.QueryRow(ctx, selectQuery, userID).Scan(&userBalance)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			logrus.Error(err)
+			logrus.Errorf("the userID not found: %s", err)
 			return decimal.Zero, fmt.Errorf("the userID not found: %w", err)
 		}
-		logrus.Error("error querying for uuid: ", err)
-		return decimal.Zero, fmt.Errorf("error querying for order number: %w", err)
+		logrus.Errorf("error querying for user_balance: %s", err)
+		return decimal.Zero, fmt.Errorf("error querying for user_balance: %w", err)
 	}
 	return userBalance, nil
 }
 
+// GetUserWithdrawn возвращает сумму всех списаний пользователя
 func (d *InDBRepo) GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
 	const selectQuery = `SELECT SUM(sum) FROM withdrawals WHERE uuid = $1`
 	var userWithdrawn decimal.Decimal
 	err := d.dbPool.QueryRow(ctx, selectQuery, userID).Scan(&userWithdrawn)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			logrus.Error(err)
-			return decimal.Zero, fmt.Errorf("the order number not found: %w", err)
+			logrus.Errorf("the userID not found: %s", err)
+			return decimal.Zero, fmt.Errorf("the uuid not found: %w", err)
 		}
-		logrus.Error("error querying for uuid: ", err)
-		return decimal.Zero, fmt.Errorf("error querying for order number: %w", err)
+		logrus.Errorf("error querying for sum withdrawn: %s", err)
+		return decimal.Zero, fmt.Errorf("error querying for sum withdrawn : %w", err)
 	}
 	return userWithdrawn, nil
 }
 
+// GetUserWithdrawals возвращает список всех списаний пользователя в порядке к более свежей дате
 func (d *InDBRepo) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error) {
 	const selectQuery = `SELECT order_number,sum,date FROM withdrawals WHERE uuid = $1 ORDER BY date`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID)
