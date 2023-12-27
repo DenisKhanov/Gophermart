@@ -13,12 +13,12 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-type URLInDBRepo struct {
+type InDBRepo struct {
 	dbPool *pgxpool.Pool //opened in main func dbPool pool connections
 }
 
-func NewURLInDBRepo(dbPool *pgxpool.Pool) *URLInDBRepo {
-	storage := &URLInDBRepo{
+func NewURLInDBRepo(dbPool *pgxpool.Pool) *InDBRepo {
+	storage := &InDBRepo{
 		dbPool: dbPool,
 	}
 	storage.CreateBDTables()
@@ -26,7 +26,7 @@ func NewURLInDBRepo(dbPool *pgxpool.Pool) *URLInDBRepo {
 }
 
 // CreateBDTables создание таблиц users и orders в базе данных
-func (d *URLInDBRepo) CreateBDTables() error {
+func (d *InDBRepo) CreateBDTables() error {
 	ctx := context.Background()
 	sqlQuery := `
 CREATE TABLE users (
@@ -69,7 +69,7 @@ CREATE TABLE balance (
 }
 
 // StoreNewUser сохраняет нового пользователя (заранее сгенерированный UUID, логин и хешированный пароль)
-func (d *URLInDBRepo) StoreNewUser(ctx context.Context, tx pgx.Tx, userID uuid.UUID, login string, hashedPassword []byte) error {
+func (d *InDBRepo) StoreNewUser(ctx context.Context, tx pgx.Tx, userID uuid.UUID, login string, hashedPassword []byte) error {
 
 	const sqlQuery = `INSERT INTO users (uuid,login, hashed_password) VALUES ($1, $2,$3) ON CONFLICT (login) DO NOTHING`
 	_, err := tx.Exec(ctx, sqlQuery, userID, login, hashedPassword)
@@ -79,7 +79,7 @@ func (d *URLInDBRepo) StoreNewUser(ctx context.Context, tx pgx.Tx, userID uuid.U
 	}
 	return nil
 }
-func (d *URLInDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
+func (d *InDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID) error {
 
 	const sqlQuery = `INSERT INTO balance (uuid) VALUES ($1)`
 	_, err := tx.Exec(ctx, sqlQuery, userID)
@@ -91,7 +91,7 @@ func (d *URLInDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID
 }
 
 // StoreUserOrder сохраняет с привязкой к UUID пользователя новый заказ
-func (d *URLInDBRepo) StoreUserOrder(ctx context.Context, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error {
+func (d *InDBRepo) StoreUserOrder(ctx context.Context, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error {
 	const sqlQuery = `INSERT INTO orders (order_number, uuid,accrual,status) VALUES ($1, $2,$3,$4)`
 	_, err := d.dbPool.Exec(ctx, sqlQuery, orderNumber, userID, bonus, orderStatus)
 	if err != nil {
@@ -102,7 +102,7 @@ func (d *URLInDBRepo) StoreUserOrder(ctx context.Context, orderNumber, orderStat
 }
 
 // GetUUID возвращает userID на основании его логина или возвращает ошибку если не существует
-func (d *URLInDBRepo) GetUUIDFromUsers(ctx context.Context, login string) (uuid.UUID, error) {
+func (d *InDBRepo) GetUUIDFromUsers(ctx context.Context, login string) (uuid.UUID, error) {
 	const selectQuery = `SELECT uuid FROM users WHERE login = $1`
 	var savedUserID uuid.UUID
 	err := d.dbPool.QueryRow(ctx, selectQuery, login).Scan(&savedUserID)
@@ -118,7 +118,7 @@ func (d *URLInDBRepo) GetUUIDFromUsers(ctx context.Context, login string) (uuid.
 }
 
 // GetUserHashPassword возвращает хешированный пароль на основании логина пользователя или возвращает ошибку если не существует
-func (d *URLInDBRepo) GetUserHashPassword(ctx context.Context, login string) ([]byte, error) {
+func (d *InDBRepo) GetUserHashPassword(ctx context.Context, login string) ([]byte, error) {
 	//TODO может лучше принимать в виде аргумента userID?
 	const selectQuery = `SELECT hashed_password FROM users WHERE login = $1`
 	var savedHashedPassword []byte
@@ -135,7 +135,7 @@ func (d *URLInDBRepo) GetUserHashPassword(ctx context.Context, login string) ([]
 }
 
 // GetOrderUUID возвращает сохраненный userID по номеру заказа или возвращает ошибку если не существует
-func (d *URLInDBRepo) GetUUIDFromOrders(ctx context.Context, orderNumber string) (uuid.UUID, error) {
+func (d *InDBRepo) GetUUIDFromOrders(ctx context.Context, orderNumber string) (uuid.UUID, error) {
 	const selectQuery = `SELECT uuid FROM orders WHERE order_number = $1`
 	var savedUserID uuid.UUID
 	err := d.dbPool.QueryRow(ctx, selectQuery, orderNumber).Scan(&savedUserID)
@@ -151,7 +151,7 @@ func (d *URLInDBRepo) GetUUIDFromOrders(ctx context.Context, orderNumber string)
 }
 
 // UpdateOrders обновление состояния заказов, которые были с незавершенными статусами
-func (d *URLInDBRepo) UpdateOrders(ctx context.Context, tx pgx.Tx, updatedOrders []models.AccrualResponseData) error {
+func (d *InDBRepo) UpdateOrders(ctx context.Context, tx pgx.Tx, updatedOrders []models.AccrualResponseData) error {
 	const sqlQuery = `UPDATE orders SET status = $1, accrual=$2 WHERE order_number = $3`
 	for _, order := range updatedOrders {
 		_, err := tx.Exec(ctx, sqlQuery, order.Status, order.Accrual, order.Order)
@@ -164,7 +164,7 @@ func (d *URLInDBRepo) UpdateOrders(ctx context.Context, tx pgx.Tx, updatedOrders
 }
 
 // GetProcessingOrders возвращение списка номеров заказов которые не имеют финального статуса
-func (d *URLInDBRepo) GetProcessingOrders(ctx context.Context) ([]models.UserOrder, error) {
+func (d *InDBRepo) GetProcessingOrders(ctx context.Context) ([]models.UserOrder, error) {
 	const selectQuery = `SELECT order_number,status,uuid FROM orders WHERE status = $1 OR status = $2 OR status = $3`
 	rows, err := d.dbPool.Query(ctx, selectQuery, "REGISTERED", "PROCESSING", "NEW")
 	if err != nil {
@@ -188,7 +188,7 @@ func (d *URLInDBRepo) GetProcessingOrders(ctx context.Context) ([]models.UserOrd
 	return orders, nil
 }
 
-func (d *URLInDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
+func (d *InDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
 	const selectQuery = `SELECT order_number,status FROM orders WHERE uuid=$1 AND (status = $2 OR status = $3)`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID, "NEW", "PROCESSING")
 	if err != nil {
@@ -216,7 +216,7 @@ func (d *URLInDBRepo) GetUserProcessingOrders(ctx context.Context, userID uuid.U
 // TODO может условие с accrual nil в базе прописать, обратить внимание на совет Дениса
 
 // GetUserOrders возвращает слайс всех заказов пользователя в формате models.UserOrder
-func (d *URLInDBRepo) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
+func (d *InDBRepo) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error) {
 	const selectQuery = `SELECT order_number,status,accrual,date FROM orders WHERE uuid = $1 ORDER BY date`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID)
 	if err != nil {
@@ -257,7 +257,7 @@ func (d *URLInDBRepo) GetUserOrders(ctx context.Context, userID uuid.UUID) ([]mo
 // TODO подумать где лучше открывать транзакцию
 
 // StoreUserWithdrawal сохраняет в таблицу withdrawals новое списание баллов пользователя
-func (d *URLInDBRepo) StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error {
+func (d *InDBRepo) StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID uuid.UUID, orderNumber string, sum decimal.Decimal) error {
 	const sqlQuery = `INSERT INTO withdrawals (uuid,order_number,sum) VALUES ($1, $2,$3)`
 	_, err := tx.Exec(ctx, sqlQuery, userID, orderNumber, sum)
 	if err != nil {
@@ -268,7 +268,7 @@ func (d *URLInDBRepo) StoreUserWithdrawal(ctx context.Context, tx pgx.Tx, userID
 }
 
 // UpdateUserBalance обновляет состояние баланса у конкретного пользователя в таблице balance
-func (d *URLInDBRepo) UpdateUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, newBalance decimal.Decimal) error {
+func (d *InDBRepo) UpdateUserBalance(ctx context.Context, tx pgx.Tx, userID uuid.UUID, newBalance decimal.Decimal) error {
 	const sqlQuery = `UPDATE balance SET user_balance = $1 WHERE uuid = $2`
 	_, err := tx.Exec(ctx, sqlQuery, newBalance, userID)
 	if err != nil {
@@ -276,7 +276,7 @@ func (d *URLInDBRepo) UpdateUserBalance(ctx context.Context, tx pgx.Tx, userID u
 	}
 	return nil
 }
-func (d *URLInDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBalanceToUpdate map[uuid.UUID]decimal.Decimal) error {
+func (d *InDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBalanceToUpdate map[uuid.UUID]decimal.Decimal) error {
 	const sqlQuery = `UPDATE balance SET user_balance = $1 WHERE uuid = $2`
 	for userID, newBalance := range usersBalanceToUpdate {
 		_, err := tx.Exec(ctx, sqlQuery, newBalance, userID)
@@ -288,7 +288,7 @@ func (d *URLInDBRepo) UsersBalanceUpdate(ctx context.Context, tx pgx.Tx, usersBa
 }
 
 // GetUserBalance возвращает нынешний баланс пользователя
-func (d *URLInDBRepo) GetUserBalance(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
+func (d *InDBRepo) GetUserBalance(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
 	const selectQuery = `SELECT user_balance FROM balance WHERE uuid = $1`
 	var userBalance decimal.Decimal
 	err := d.dbPool.QueryRow(ctx, selectQuery, userID).Scan(&userBalance)
@@ -303,7 +303,7 @@ func (d *URLInDBRepo) GetUserBalance(ctx context.Context, userID uuid.UUID) (dec
 	return userBalance, nil
 }
 
-func (d *URLInDBRepo) GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
+func (d *InDBRepo) GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (decimal.Decimal, error) {
 	const selectQuery = `SELECT SUM(sum) FROM withdrawals WHERE uuid = $1`
 	var userWithdrawn decimal.Decimal
 	err := d.dbPool.QueryRow(ctx, selectQuery, userID).Scan(&userWithdrawn)
@@ -318,7 +318,7 @@ func (d *URLInDBRepo) GetUserWithdrawn(ctx context.Context, userID uuid.UUID) (d
 	return userWithdrawn, nil
 }
 
-func (d *URLInDBRepo) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error) {
+func (d *InDBRepo) GetUserWithdrawals(ctx context.Context, userID uuid.UUID) ([]models.UserWithdrawal, error) {
 	const selectQuery = `SELECT order_number,sum,date FROM withdrawals WHERE uuid = $1 ORDER BY date`
 	rows, err := d.dbPool.Query(ctx, selectQuery, userID)
 	if err != nil {

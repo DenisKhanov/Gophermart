@@ -11,6 +11,7 @@ import (
 	"github.com/DenisKhanov/Gophermart/internal/app/services"
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/shopspring/decimal"
 	"github.com/sirupsen/logrus"
 	"net/http"
 	"os"
@@ -19,6 +20,10 @@ import (
 	"time"
 )
 
+func init() {
+	// Установка флага для сериализации в JSON без кавычек
+	decimal.MarshalJSONWithoutQuotes = true
+}
 func main() {
 	var (
 		dbPool               *pgxpool.Pool
