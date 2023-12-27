@@ -30,7 +30,6 @@ func main() {
 		err                  error
 		cfg                  *config.ENVConfig
 		GophermartRepository services.Repository
-		//repositoryReciver    bool
 	)
 
 	cfg = config.NewConfig()
@@ -108,13 +107,6 @@ func main() {
 	if err = server.Shutdown(ctx); err != nil {
 		fmt.Fprintf(os.Stderr, "HTTP server Shutdown: %v\n", err)
 	}
-	//If the server shutting down, save batch to file
-	//if repositoryReciver {
-	//	err = GophermartRepository.(services.URLInMemoryRepository).SaveBatchToFile()
-	//	if err != nil {
-	//		logrus.Error(err)
-	//	}
-	//}
 
 	logrus.Info("Server exited")
 }

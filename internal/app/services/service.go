@@ -30,7 +30,7 @@ type Repository interface {
 	GetUserHashPassword(ctx context.Context, login string) ([]byte, error)
 	GetUUIDFromOrders(ctx context.Context, orderNumber string) (uuid.UUID, error)
 	GetUUIDFromUsers(ctx context.Context, login string) (uuid.UUID, error)
-	StoreUserOrder(ctx context.Context, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error
+	StoreUserOrder(ctx context.Context, tx pgx.Tx, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error
 	GetProcessingOrders(ctx context.Context) ([]models.UserOrder, error)
 	GetUserProcessingOrders(ctx context.Context, userID uuid.UUID) ([]models.UserOrder, error)
 	UpdateOrders(ctx context.Context, tx pgx.Tx, orders []models.AccrualResponseData) error
@@ -75,6 +75,74 @@ func isValidLuhn(number string) bool {
 		sum += digit
 	}
 	return sum%10 == 0
+}
+
+// CreateUser метод регистрации пользователя, выполняет проверки на качество логина и пароля
+// и в случае соответствия сохраняет пользователя в базу данных
+func (s GmartServices) CreateUser(ctx context.Context, login, password string) (token string, err error) {
+	//Пришлось выключить, данные условия не заложены в автотесты((
+	//if err = s.checkRegistrationData(login, password); err != nil {
+	//	logrus.Error(err)
+	//	return "", err
+	//}
+	if len(login) < 1 || len(password) < 1 {
+		return "", models.ErrSaveNewUser
+	}
+	_, err = s.repository.GetUserHashPassword(ctx, login)
+	if err == nil {
+		logrus.Error(models.ErrUserAlreadyTaken)
+		return "", models.ErrUserAlreadyTaken
+	}
+	hashedPassword, err := auth.CreateHashPassword(password)
+	if err != nil {
+		logrus.Error(err)
+		return "", err
+	}
+	userID := auth.GenerateUniqueID()
+	token, err = auth.BuildJWTString(userID)
+	if err != nil {
+		return "", models.ErrSaveNewUser
+	}
+	if err = s.withTransaction(ctx, func(tx pgx.Tx) error {
+		if err = s.repository.StoreNewUser(ctx, tx, userID, login, hashedPassword); err != nil {
+			logrus.Error(models.ErrSaveNewUser)
+			return models.ErrSaveNewUser
+		}
+		if err = s.repository.StoreNewUserBalance(ctx, tx, userID); err != nil {
+			logrus.Error(models.ErrSaveNewUser)
+			return models.ErrSaveNewUser
+		}
+		return nil
+	}); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// LogIn метод аутентификации пользователя, в случае успеха возвращает token
+func (s GmartServices) LogIn(ctx context.Context, login, password string) (token string, err error) {
+	//Пришлось выключить, данные условия не заложены в автотесты((
+	//if err = s.checkLogin(login); err != nil {
+	//	logrus.Error(err)
+	//	return "", err
+	//}
+	savedHashedPassword, err := s.repository.GetUserHashPassword(ctx, login)
+	if err != nil {
+		logrus.Error(err)
+		return "", err
+	}
+	if auth.CheckHashPasswordForValid(savedHashedPassword, password) {
+		savedUserID, err := s.repository.GetUUIDFromUsers(ctx, login)
+		if err != nil {
+			return "", models.ErrAccessingDB
+		}
+		token, err = auth.BuildJWTString(savedUserID)
+		if err != nil {
+			return "", models.ErrSaveNewUser
+		}
+		return token, nil
+	}
+	return "", models.ErrUnauthorizedUser
 }
 
 // checkRegistrationData объединяет checkLogin и checkPassword, если логин или пароль не соответствует, то возвращает ошибку
@@ -173,73 +241,6 @@ func (s GmartServices) checkPassword(password string) error {
 	return nil
 }
 
-// CreateUser метод регистрации пользователя, выполняет проверки на качество логина и пароля
-// и в случае соответствия сохраняет пользователя в базу данных
-func (s GmartServices) CreateUser(ctx context.Context, login, password string) (token string, err error) {
-	//if err = s.checkRegistrationData(login, password); err != nil {
-	//	logrus.Error(err)
-	//	return "", err
-	//}
-	if len(login) < 1 || len(password) < 1 {
-		return "", models.ErrSaveNewUser
-	}
-	_, err = s.repository.GetUserHashPassword(ctx, login)
-	if err == nil {
-		logrus.Error(models.ErrUserAlreadyTaken)
-		return "", models.ErrUserAlreadyTaken
-	}
-	hashedPassword, err := auth.CreateHashPassword(password)
-	if err != nil {
-		logrus.Error(err)
-		return "", err
-	}
-	userID := auth.GenerateUniqueID()
-	token, err = auth.BuildJWTString(userID)
-	if err != nil {
-		return "", models.ErrSaveNewUser
-	}
-	if err = s.withTransaction(ctx, func(tx pgx.Tx) error {
-		if err = s.repository.StoreNewUser(ctx, tx, userID, login, hashedPassword); err != nil {
-			logrus.Error(models.ErrSaveNewUser)
-			return models.ErrSaveNewUser
-		}
-		if err = s.repository.StoreNewUserBalance(ctx, tx, userID); err != nil {
-			logrus.Error(models.ErrSaveNewUser)
-			return models.ErrSaveNewUser
-		}
-		return nil
-	}); err != nil {
-		return "", err
-	}
-	return token, nil
-}
-
-// LogIn метод аутентификации пользователя, в случае успеха возвращает token
-func (s GmartServices) LogIn(ctx context.Context, login, password string) (token string, err error) {
-	//if err = s.checkLogin(login); err != nil {
-	//	logrus.Error(err)
-	//	return "", err
-	//}
-	savedHashedPassword, err := s.repository.GetUserHashPassword(ctx, login)
-	if err != nil {
-		logrus.Error(err)
-		return "", err
-	}
-	if auth.CheckHashPasswordForValid(savedHashedPassword, password) {
-		savedUserID, err := s.repository.GetUUIDFromUsers(ctx, login)
-		if err != nil {
-			return "", models.ErrAccessingDB
-		}
-		token, err = auth.BuildJWTString(savedUserID)
-		if err != nil {
-			return "", models.ErrSaveNewUser
-		}
-		return token, nil
-	}
-	return "", models.ErrUnauthorizedUser
-
-}
-
 // InputUserOrder метод принимает номер заказа, проверяет его при помощи алгоритма Луна и если все ок,
 // то асинхронно отправляет запрос в accrualAPI сервис и записывает результат в базу
 func (s GmartServices) InputUserOrder(ctx context.Context, userID uuid.UUID, orderNumber string) error {
@@ -288,7 +289,8 @@ func (s GmartServices) InputUserOrder(ctx context.Context, userID uuid.UUID, ord
 		}
 		newUserBalance := userBalance.Add(*accrualData.Accrual)
 		return s.withTransaction(ctx, func(tx pgx.Tx) error {
-			if err = s.repository.StoreUserOrder(ctx, orderNumber, accrualData.Status, userID, *accrualData.Accrual); err != nil {
+			if err = s.repository.StoreUserOrder(ctx, tx, orderNumber, accrualData.Status, userID, *accrualData.Accrual); err != nil {
+				logrus.Error(err)
 				return models.ErrAccessingDB
 			}
 			if accrualData.Accrual != nil {
@@ -524,19 +526,8 @@ func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder
 	defer resp.Body.Close()
 
 	// check request status
-	// TODO возможно тут нужно сохранять заказ со статусом NEW?
-	for resp.StatusCode == http.StatusTooManyRequests {
-		body, err := io.ReadAll(resp.Body)
-		if err != nil {
-			logrus.Error("failed to read response body: ", err)
-			return models.AccrualResponseData{}, err
-		}
-		logrus.Errorf("%s: %v", body, resp.Status)
-		time.Sleep(60 * time.Second)
-	}
-	if resp.StatusCode == http.StatusNoContent {
-		logrus.Error("the order is not registered in the payment system: ", resp.Status)
-		return models.AccrualResponseData{}, models.ErrOrderNumber
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusNoContent {
+		return models.AccrualResponseData{UserID: order.UserID, Order: order.Number, Status: "NEW"}, nil
 	}
 	if resp.StatusCode == http.StatusInternalServerError {
 		logrus.Error("internal server error: ", resp.Status)

@@ -91,9 +91,9 @@ func (d *InDBRepo) StoreNewUserBalance(ctx context.Context, tx pgx.Tx, userID uu
 }
 
 // StoreUserOrder сохраняет с привязкой к UUID пользователя новый заказ
-func (d *InDBRepo) StoreUserOrder(ctx context.Context, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error {
+func (d *InDBRepo) StoreUserOrder(ctx context.Context, tx pgx.Tx, orderNumber, orderStatus string, userID uuid.UUID, bonus decimal.Decimal) error {
 	const sqlQuery = `INSERT INTO orders (order_number, uuid,accrual,status) VALUES ($1, $2,$3,$4)`
-	_, err := d.dbPool.Exec(ctx, sqlQuery, orderNumber, userID, bonus, orderStatus)
+	_, err := tx.Exec(ctx, sqlQuery, orderNumber, userID, bonus, orderStatus)
 	if err != nil {
 		logrus.Error("new order don't save in database ", err)
 		return err
