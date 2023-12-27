@@ -527,7 +527,8 @@ func (s GmartServices) GetAccrualAPI(ctx context.Context, order models.UserOrder
 
 	// check request status
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusNoContent {
-		return models.AccrualResponseData{UserID: order.UserID, Order: order.Number, Status: "NEW"}, nil
+		zeroAccrual := decimal.NewFromFloat(0.00)
+		return models.AccrualResponseData{UserID: order.UserID, Order: order.Number, Status: "NEW", Accrual: &zeroAccrual}, nil
 	}
 	if resp.StatusCode == http.StatusInternalServerError {
 		logrus.Error("internal server error: ", resp.Status)
