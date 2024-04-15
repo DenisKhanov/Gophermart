@@ -18,7 +18,7 @@
 ![schema.png](DB%20scheme.png)
 
 
-Для взаимодействия с сервисами предоставляется [HTTP API](./docs/api.md).
+Для взаимодействия с сервисами предоставляется [HTTP API](./api.md).
 
 Используемые технологии:
 - Docker/Docker compose
